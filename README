@@ -1,0 +1,1 @@
+Just a small example of using Reimann's clojure client in your application. In short, add [reimann "0.0.3-SNAPSHOT"] (check http://clojars.org/reimann for latest) to your project.clj dependencies, then require/use reimann.client.

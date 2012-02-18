@@ -1,0 +1,12 @@
+pom.xml
+*.jar
+*.war
+*.deb
+*~
+.*.swp
+*.lib
+classes
+build
+.lein-deps-sum
+.lein-failures
+doc/**
