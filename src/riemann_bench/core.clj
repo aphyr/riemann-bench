@@ -1,11 +1,11 @@
-(ns reimann-bench.core
-  (:use reimann.client)
-  (:use reimann.logging)
-  (:use reimann.common)
+(ns riemann-bench.core
+  (:use riemann.client)
+  (:use riemann.logging)
+  (:use riemann.common)
   (:use clojure.tools.logging)
   (:gen-class))
 
-(reimann.logging/init)
+(riemann.logging/init)
 
 (defmacro rtime
     "Evaluates expr and returns the time it took in seconds"
@@ -18,7 +18,7 @@
   [& argv]
     (info "here")
 
-  (let [c (reimann.client/tcp-client)
+  (let [c (riemann.client/tcp-client)
         n 1000
         threads 100
         events (take n (repeatedly 

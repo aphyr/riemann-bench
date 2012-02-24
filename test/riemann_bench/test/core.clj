@@ -1,5 +1,5 @@
-(ns reimann-bench.test.core
-  (:use [reimann-bench.core])
+(ns riemann-bench.test.core
+  (:use [riemann-bench.core])
   (:use [clojure.test]))
 
 (deftest replace-me ;; FIXME: write
