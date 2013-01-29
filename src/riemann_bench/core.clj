@@ -1,5 +1,6 @@
 (ns riemann-bench.core
   (:use riemann.client
+        [riemann.codec :only [map->Event]]
         [clojure.stacktrace :only [print-cause-trace]]
         [schadenfreude.git :only [compare-versions]]
         clojure.java.shell)
@@ -62,10 +63,43 @@
     (kill-children :term (:process process))
     (println "Server exited with" @code)))
 
-(def drop-tcp-run
-  {:name "drop tcp"
+(def drop-tcp-event-batch-run
+  {:name "drop tcp event batch"
+   :n 1000000
+   :sample 100
+   :threads 20
+   :before (fn [x]
+             (if-let [client (try
+                               (query (tcp-client) "false")
+                               (catch java.net.ConnectException e
+                                 (print-cause-trace e)
+                                 nil))]
+               (batch 15
+                      (multi-client 
+                        (take 4 (repeatedly #(threaded-tcp-client)))))
+               (do
+                 (Thread/sleep 100)
+                 (recur x))))
+   :f #(try
+         (send-event % (map->Event
+                         {:host "test"
+                          :service "drop tcp"
+                          :state "ok"
+                          :description "a benchmark"
+                          :metric 1
+                          :ttl 1
+                          :tags ["bench"]})
+                     false)
+         (catch Exception e (println e)))
+   :after (fn [c]
+            (close-client c)
+            (prn (query (tcp-client) "true"))
+            (Thread/sleep 10000))})
+
+(def drop-tcp-event-run
+  {:name "drop tcp event"
    :n 500000
-   :threads 1
+   :threads 10
    :before (fn [x]
              (if-let [client (try
                                (tcp-client)
@@ -89,7 +123,8 @@
   "A test suite against a riemann repo in dir."
   [dir]
   {:before #(start-server dir)
-   :runs [drop-tcp-run]
+   :runs [;drop-tcp-event-run
+          drop-tcp-event-batch-run]
    :after stop-server})
 
 (defn suite'
