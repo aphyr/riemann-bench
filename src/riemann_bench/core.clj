@@ -63,61 +63,47 @@
     (kill-children :term (:process process))
     (println "Server exited with" @code)))
 
-(def drop-tcp-event-batch-run
-  {:name "drop tcp event batch"
-   :n 1000000
-   :sample 100
-   :threads 20
-   :before (fn [x]
-             (if-let [client (try
-                               (query (tcp-client) "false")
-                               (catch java.net.ConnectException e
-                                 (print-cause-trace e)
-                                 nil))]
-               (batch 15
-                      (multi-client 
-                        (take 4 (repeatedly #(threaded-tcp-client)))))
-               (do
-                 (Thread/sleep 100)
-                 (recur x))))
-   :f #(try
-         (send-event % (map->Event
-                         {:host "test"
-                          :service "drop tcp"
-                          :state "ok"
-                          :description "a benchmark"
-                          :metric 1
-                          :ttl 1
-                          :tags ["bench"]})
-                     false)
-         (catch Exception e (println e)))
-   :after (fn [c]
-            (close-client c)
-            (prn (query (tcp-client) "true"))
-            (Thread/sleep 10000))})
+(defn await-tcp-server
+  []
+  (print "Waiting for server")
+  (flush)
+  (loop []
+    (when-not (let [c (tcp-client)]
+                (try
+                  (query c "false")
+                  true
+                  (catch java.io.IOException e
+                    (print ".")
+                    (flush)
+                    false)
+                  (finally
+                    (close-client c))))
+      (Thread/sleep 100)
+      (recur))))
 
-(def drop-tcp-event-run
-  {:name "drop tcp event"
-   :n 500000
-   :threads 10
-   :before (fn [x]
-             (if-let [client (try
-                               (tcp-client)
-                               (catch java.net.ConnectException e
-                                 (print-cause-trace e)
-                                 nil))]
-               client
-               (do
-                 (Thread/sleep 100)
-                 (recur x))))
-   :f #(send-event % {:host "test"
-                      :service "drop tcp"
-                      :state "ok"
-                      :description "a benchmark"
-                      :metric 1.23
-                      :ttl 1
-                      :tags ["bench"]})
-   :after #(close-client %)})
+(def drop-tcp-event-batch-run
+  (let [events (take 100 (repeatedly
+                          #(map->Event
+                             {:host "test"
+                              :service "drop tcp"
+                              :state "ok"
+                              :description "a benchmark"
+                              :metric 1
+                              :ttl 1
+                              :tags ["bench"]})))]
+    {:name "drop tcp event batch"
+     :n 100000
+     :sample 10
+     :threads 10
+     :before (fn [x]
+               (await-tcp-server)
+               (multi-client
+                 (take 10 (repeatedly #(tcp-client)))))
+     :f #(try
+           (send-events % events)
+           (catch Exception e (println e)))
+     :after (fn [c]
+              (close-client c))}))
 
 (defn suite
   "A test suite against a riemann repo in dir."
