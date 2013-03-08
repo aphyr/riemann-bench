@@ -78,7 +78,7 @@
                     false)
                   (finally
                     (close-client c))))
-      (Thread/sleep 100)
+      (Thread/sleep 500)
       (recur))))
 
 (def drop-tcp-event-batch-run
@@ -92,13 +92,13 @@
                               :ttl 1
                               :tags ["bench"]})))]
     {:name "drop tcp event batch"
-     :n 100000
+     :n 1000000
      :sample 10
-     :threads 10
+     :threads 20
      :before (fn [x]
                (await-tcp-server)
                (multi-client
-                 (take 10 (repeatedly #(tcp-client)))))
+                 (take 5 (repeatedly #(tcp-client)))))
      :f #(try
            (send-events % events)
            (catch Exception e (println e)))
