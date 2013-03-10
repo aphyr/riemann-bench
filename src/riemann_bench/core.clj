@@ -5,6 +5,8 @@
         [schadenfreude.git :only [compare-versions]]
         clojure.java.shell)
   (:require [conch.core :as sh])
+  (:import (java.util.concurrent LinkedBlockingQueue
+                                 ArrayBlockingQueue))
   (:gen-class))
 
 (defn expand-path
@@ -81,28 +83,71 @@
       (Thread/sleep 500)
       (recur))))
 
-(def drop-tcp-event-batch-run
-  (let [events (take 100 (repeatedly
-                          #(map->Event
-                             {:host "test"
-                              :service "drop tcp"
-                              :state "ok"
-                              :description "a benchmark"
-                              :metric 1
-                              :ttl 1
-                              :tags ["bench"]})))]
-    {:name "drop tcp event batch"
-     :n 1000000
+(defn example-event
+  []
+  (map->Event
+    {:host "test"
+     :service "async tcp rate run"
+     :state "ok"
+     :description "a benchmark"
+     :metric 1
+     :ttl 1
+     :tags ["bench"]}))
+
+(def bulk-async-tcp-rate-run
+  (let [events (take 100 (repeatedly #(example-event)))]
+    {:name "bulk async tcp rate"
+     :n 200000
      :sample 10
-     :threads 20
+     :threads 4
      :before (fn [x]
                (await-tcp-server)
-               (multi-client
-                 (take 5 (repeatedly #(tcp-client)))))
-     :f #(try
-           (send-events % events)
-           (catch Exception e (println e)))
-     :after (fn [c]
+               (let [n 5000
+                     queue (ArrayBlockingQueue. n)
+;                     client (multi-client
+;                              (take 2 (repeatedly #(tcp-client))))]
+                     client (tcp-client)]
+                 ; Fill queue
+                 (dotimes [i n]
+                   (.put queue (doto (promise) (deliver nil))))
+                 [queue client]))
+     :f (fn [[queue client]]
+          (try 
+            ; Block on a result
+            (deref (.poll queue))
+
+            ; Add a new write.
+            (.put queue (async-send-events client events))
+            (catch Exception e (println e))))
+     :after (fn [[queue c]]
+              (close-client c))}))
+
+(def async-tcp-rate-run
+  (let [event (example-event)]
+    {:name "async tcp rate"
+     :n 10000000
+     :sample 100
+     :threads 3
+     :before (fn [x]
+               (await-tcp-server)
+               (let [n 5000
+                     queue (ArrayBlockingQueue. n)
+;                     client (multi-client
+;                              (take 2 (repeatedly #(tcp-client))))]
+                     client (tcp-client)]
+                 ; Fill queue
+                 (dotimes [i n]
+                   (.put queue (doto (promise) (deliver nil))))
+                 [queue client]))
+     :f (fn [[queue client]]
+          (try 
+            ; Block on a result
+            (deref (.poll queue))
+
+            ; Add a new write.
+            (.put queue (async-send-event client event))
+            (catch Exception e (println e))))
+     :after (fn [[queue c]]
               (close-client c))}))
 
 (defn suite
@@ -110,7 +155,8 @@
   [dir]
   {:before #(start-server dir)
    :runs [;drop-tcp-event-run
-          drop-tcp-event-batch-run]
+          ; async-tcp-rate-run
+          bulk-async-tcp-rate-run]
    :after stop-server})
 
 (defn suite'
