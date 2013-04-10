@@ -1,6 +1,6 @@
 (defproject riemann-bench "1.0.0-SNAPSHOT"
   :description "Benchmark Riemann"
-  :dependencies [[riemann-clojure-client "0.0.7-SNAPSHOT"]
+  :dependencies [[riemann-clojure-client "0.2.1-SNAPSHOT"]
                  [me.raynes/conch "0.4.0"]
                  [org.clojure/clojure "1.4.0"]
                  [schadenfreude "0.1.1-SNAPSHOT"]
