@@ -97,16 +97,16 @@
 (def bulk-async-tcp-rate-run
   (let [events (take 100 (repeatedly #(example-event)))]
     {:name "bulk async tcp rate"
-     :n 200000
+     :n 100000
      :sample 10
      :threads 4
      :before (fn [x]
                (await-tcp-server)
                (let [n 5000
                      queue (ArrayBlockingQueue. n)
-;                     client (multi-client
-;                              (take 2 (repeatedly #(tcp-client))))]
-                     client (tcp-client)]
+                     client (multi-client
+                              (take 2 (repeatedly #(tcp-client))))]
+;                     client (tcp-client)]
                  ; Fill queue
                  (dotimes [i n]
                    (.put queue (doto (promise) (deliver nil))))
