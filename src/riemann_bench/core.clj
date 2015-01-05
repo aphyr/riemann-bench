@@ -6,7 +6,9 @@
   (:require [conch.core :as sh]
             [clojure.java.io :as io]
             [riemann.codec :as codec])
-  (:import (java.util.concurrent LinkedBlockingQueue
+  (:import (java.util Queue)
+           (java.util.concurrent LinkedBlockingQueue
+                                 LinkedTransferQueue
                                  ArrayBlockingQueue)))
 ;  (:gen-class))
 
@@ -71,11 +73,10 @@
     (kill-children :term (:process process))
     (println "Server exited with" @code)))
 
-
 (defn example-event
   []
   {:host "test"
-   :service "async tcp rate run"
+   :service "riemann-bench test event"
    :state "ok"
    :description "a benchmark"
    :metric 1
@@ -83,37 +84,66 @@
    :time (/ (System/currentTimeMillis) 1000)
    :tags ["bench"]})
 
-(def bulk-async-tcp-rate-run
-  (let [msg (codec/encode-pb-msg
-              {:events (take 100 (repeatedly example-event))})]
-    {:name "bulk async tcp rate"
-     :n 1000000
-     :threads 48
+(defn async-tcp-run
+  "Options:
+
+  :name
+  :n
+  :threads
+  :queue-size
+  :clients
+  :events"
+  [opts]
+  (let [msg (codec/encode-pb-msg {:events (:events opts)})]
+    {:name (:name opts)
+     :n (:n opts)
+     :threads (:threads opts)
      :before (fn [x]
-               (let [n 10000
-                     queue (ArrayBlockingQueue. n)
+               (let [n      (:queue-size opts)
+                     queue  (LinkedTransferQueue.)
                      client (multi-client
-                              (take 4 (repeatedly #(tcp-client))))]
+                              (take (:clients opts) (repeatedly tcp-client)))]
 
                  ; Fill queue
                  (dotimes [i n]
                    (.put queue (send-msg client msg)))
 
                  [queue client]))
-     :f (fn [[^ArrayBlockingQueue queue client]]
+     :f (fn [[^Queue queue client]]
           ; Block on a result
           @(.poll queue)
 
           ; Add a new write.
-          (.put queue (send-msg client msg)))
+          (.add queue (send-msg client msg)))
      :after (fn [[_ c]]
               (close! c))}))
+
+(def run-tcp-async-single
+  (async-tcp-run
+    {:name        "tcp async single"
+     :n           20000000
+     :threads     32
+     :clients     32
+     :queue-size  64
+     :events      [(example-event)]}))
+
+(def run-tcp-async-bulk
+  (async-tcp-run
+    {:name        "tcp async bulk"
+     :n           4000000
+     :threads     32
+     :clients     32
+     :queue-size  64
+     :events      (take 100 (repeatedly example-event))}))
 
 (defn suite
   "A test suite against a riemann repo in dir."
   [dir]
   {:before #(start-server dir)
-   :runs [bulk-async-tcp-rate-run]
+   :runs [
+;          run-tcp-async-single
+          run-tcp-async-bulk
+          ]
    :after stop-server})
 
 (defn -main
