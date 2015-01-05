@@ -7,10 +7,23 @@
             [clojure.java.io :as io]
             [riemann.codec :as codec])
   (:import (java.util Queue)
+           (java.lang.reflect Field)
+           (java.lang ThreadLocal)
            (java.util.concurrent LinkedBlockingQueue
                                  LinkedTransferQueue
                                  ArrayBlockingQueue)))
 ;  (:gen-class))
+
+(defmacro thread-local
+  "Defines a new thread local initialized by evaluating body once in each
+  thread. Supports (deref) as well."
+  [& body]
+  `(proxy [ThreadLocal clojure.lang.IDeref] []
+     (initialValue []
+       ~@body)
+
+     (deref []
+       (.get ~'this))))
 
 (defn expand-path
   [^String path]
@@ -20,7 +33,7 @@
   "Get the PID of a process. Take a step back from the Java IPC APIs, and
   literally FUCK YOUR OWN FACE."
   [p]
-  (let [f (.. p (getClass) (getDeclaredField "pid"))]
+  (let [^Field f (.getDeclaredField (class p) "pid")]
     (.setAccessible f true)
     (.get f p)))
 
@@ -100,40 +113,41 @@
      :threads (:threads opts)
      :before (fn [x]
                (let [n      (:queue-size opts)
-                     queue  (LinkedTransferQueue.)
-                     client (multi-client
-                              (take (:clients opts) (repeatedly tcp-client)))]
-
-                 ; Fill queue
-                 (dotimes [i n]
-                   (.put queue (send-msg client msg)))
-
-                 [queue client]))
-     :f (fn [[^Queue queue client]]
+                     all-clients (atom [])
+                     client (thread-local
+                              (let [c (tcp-client)]
+                                (swap! all-clients conj c)
+                                c))
+                     queue  (thread-local
+                              (let [q (LinkedTransferQueue.)]
+                                (dotimes [i n]
+                                  (.put q (send-msg @client msg)))
+                                q))]
+                 [queue client all-clients]))
+     :f (fn [[queue client]]
+          (let [q ^Queue @queue]
           ; Block on a result
-          @(.poll queue)
+          @(.poll q)
 
           ; Add a new write.
-          (.add queue (send-msg client msg)))
-     :after (fn [[_ c]]
-              (close! c))}))
+          (.add q (send-msg @client msg))))
+     :after (fn [[_ _ all-clients]]
+              (dorun (map close! @all-clients)))}))
 
 (def run-tcp-async-single
   (async-tcp-run
     {:name        "tcp async single"
-     :n           20000000
-     :threads     32
-     :clients     32
-     :queue-size  64
+     :n           40000000
+     :threads     8
+     :queue-size  128
      :events      [(example-event)]}))
 
 (def run-tcp-async-bulk
   (async-tcp-run
     {:name        "tcp async bulk"
-     :n           4000000
-     :threads     32
-     :clients     32
-     :queue-size  64
+     :n           2000000
+     :threads     8
+     :queue-size  32
      :events      (take 100 (repeatedly example-event))}))
 
 (defn suite
@@ -141,7 +155,7 @@
   [dir]
   {:before #(start-server dir)
    :runs [
-;          run-tcp-async-single
+          run-tcp-async-single
           run-tcp-async-bulk
           ]
    :after stop-server})
